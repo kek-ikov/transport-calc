@@ -24,7 +24,6 @@ def search_cities(
     statement = (
         select(City)
         .options(
-            joinedload(City.subject).joinedload(FederalSubject.federal_district),
             joinedload(City.subject).joinedload(FederalSubject.tariff_zone),
         )
         .order_by(City.name)
@@ -67,11 +66,6 @@ def search_cities(
                 normalized_name=city.normalized_name,
                 subject_id=city.subject_id,
                 subject_name=city.subject.name if city.subject else None,
-                federal_district_name=(
-                    city.subject.federal_district.name
-                    if city.subject and city.subject.federal_district
-                    else None
-                ),
                 tariff_zone_id=city.subject.tariff_zone_id if city.subject else None,
                 tariff_zone_name=(
                     city.subject.tariff_zone.name

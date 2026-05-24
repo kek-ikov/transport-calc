@@ -19,6 +19,8 @@ function App() {
   const [cargoHeight, setCargoHeight] = useState(3500);
   const [cargoWeight, setCargoWeight] = useState(25);
 
+  const [escortVehicleCount, setEscortVehicleCount] = useState(0);
+
   const [result, setResult] = useState(null);
   const [recentCalculations, setRecentCalculations] = useState([]);
 
@@ -146,6 +148,7 @@ function App() {
     setCargoWidth(3490);
     setCargoHeight(3500);
     setCargoWeight(25);
+    setEscortVehicleCount(0);
 
     setResult(null);
     setError("");
@@ -176,6 +179,7 @@ function App() {
     const width = Number(cargoWidth);
     const height = Number(cargoHeight);
     const weight = Number(cargoWeight);
+    const escortCount = Number(escortVehicleCount);
 
     if (!Number.isFinite(length) || length <= 0) {
       return "Длина груза должна быть больше 0";
@@ -191,6 +195,14 @@ function App() {
 
     if (!Number.isFinite(weight) || weight <= 0) {
       return "Вес груза должен быть больше 0";
+    }
+
+    if (!Number.isInteger(escortCount) || escortCount < 0) {
+      return "Количество автомобилей прикрытия должно быть целым числом от 0";
+    }
+
+    if (escortCount > 10) {
+      return "Количество автомобилей прикрытия выглядит слишком большим";
     }
 
     if (length > 100000) {
@@ -229,13 +241,14 @@ function App() {
 
     try {
       const response = await axios.post(`${API_URL}/calculate`, {
-        from_city_id: fromCity.id,
-        to_city_id: toCity.id,
-        cargo_length_mm: Number(cargoLength),
-        cargo_width_mm: Number(cargoWidth),
-        cargo_height_mm: Number(cargoHeight),
-        cargo_weight_tons: Number(cargoWeight),
-      });
+          from_city_id: fromCity.id,
+          to_city_id: toCity.id,
+          cargo_length_mm: Number(cargoLength),
+          cargo_width_mm: Number(cargoWidth),
+          cargo_height_mm: Number(cargoHeight),
+          cargo_weight_tons: Number(cargoWeight),
+          escort_vehicle_count: Number(escortVehicleCount),
+        });
 
       setResult(response.data);
       await loadRecentCalculations();
@@ -439,6 +452,18 @@ function App() {
                   onChange={(event) => setCargoWeight(event.target.value)}
                 />
               </div>
+
+              <div className="field">
+                  <label>Автомобили прикрытия, шт.</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="1"
+                    value={escortVehicleCount}
+                    onChange={(event) => setEscortVehicleCount(event.target.value)}
+                  />
+                </div>
             </div>
 
             <p className="form-hint">
@@ -464,53 +489,84 @@ function App() {
           )}
 
           {result && (
-            <div className="result">
-              <div className="route">
-                <strong>{result.from_city}</strong>
-                <span>→</span>
-                <strong>{result.to_city}</strong>
+              <div className="result">
+                <div className="route">
+                  <strong>{result.from_city}</strong>
+                  <span>→</span>
+                  <strong>{result.to_city}</strong>
+                </div>
+
+                <div className="chips">
+                  <span>{result.direction_name}</span>
+                  <span>{result.cargo_size_category_name}</span>
+                  <span>
+                    {result.from_tariff_zone_name || "—"} → {result.to_tariff_zone_name}
+                  </span>
+                </div>
+
+                <div className="result-grid">
+                  <div>
+                    <span>Расстояние</span>
+                    <strong>{formatNumber(result.distance_km)} км</strong>
+                  </div>
+
+                  <div>
+                    <span>Базовая ставка</span>
+                    <strong>
+                      {formatMoney(result.base_rate_per_km, result.currency)} / км
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Надбавка за габарит</span>
+                    <strong>
+                      {formatMoney(result.cargo_size_surcharge_per_km, result.currency)} / км
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Итоговая ставка без прикрытия</span>
+                    <strong>
+                      {formatMoney(result.final_rate_per_km, result.currency)} / км
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Базовая цена</span>
+                    <strong>{formatMoney(result.base_price, result.currency)}</strong>
+                  </div>
+
+                  <div>
+                    <span>Надбавка за габарит</span>
+                    <strong>
+                      {formatMoney(result.cargo_size_surcharge_price, result.currency)}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Автомобили прикрытия</span>
+                    <strong>
+                      {result.escort_vehicle_count} ×{" "}
+                      {formatMoney(result.escort_vehicle_rate_per_km, result.currency)} / км
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span>Стоимость прикрытия</span>
+                    <strong>
+                      {formatMoney(result.additional_services_price, result.currency)}
+                    </strong>
+                  </div>
+
+                  <div className="total">
+                    <span>Итого</span>
+                    <strong>{formatMoney(result.final_price, result.currency)}</strong>
+                  </div>
+                </div>
+
+                <div className="explanation">{result.explanation}</div>
               </div>
-
-              <div className="chips">
-                <span>{result.direction_name}</span>
-                <span>{result.cargo_type}</span>
-                <span>
-                  {result.from_tariff_zone_name || "—"} → {result.to_tariff_zone_name}
-                </span>
-              </div>
-
-              <div className="result-grid">
-                <div>
-                  <span>Расстояние</span>
-                  <strong>{formatNumber(result.distance_km)} км</strong>
-                </div>
-
-                <div>
-                  <span>Ставка</span>
-                  <strong>{formatMoney(result.rate_per_km, result.currency)} / км</strong>
-                </div>
-
-                <div>
-                  <span>Базовая цена</span>
-                  <strong>{formatMoney(result.base_price, result.currency)}</strong>
-                </div>
-
-                <div>
-                  <span>Пересечение границы</span>
-                  <strong>
-                    {formatMoney(result.border_crossing_price, result.currency)}
-                  </strong>
-                </div>
-
-                <div className="total">
-                  <span>Итого</span>
-                  <strong>{formatMoney(result.final_price, result.currency)}</strong>
-                </div>
-              </div>
-
-              <div className="explanation">{result.explanation}</div>
-            </div>
-          )}
+            )}
         </section>
       </main>
 
@@ -547,6 +603,12 @@ function App() {
                     <td>
                       {item.cargo_length_mm}×{item.cargo_width_mm}×
                       {item.cargo_height_mm} мм, {item.cargo_weight_tons} т
+                      {item.cargo_size_category_name
+                        ? ` · ${item.cargo_size_category_name}`
+                        : ""}
+                      {item.escort_vehicle_count
+                        ? ` · прикрытие: ${item.escort_vehicle_count} шт.`
+                        : ""}
                     </td>
                     <td>{formatNumber(item.distance_km)} км</td>
                     <td>{formatMoney(item.final_price, item.currency || "RUB")}</td>

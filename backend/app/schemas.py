@@ -1,5 +1,5 @@
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -8,11 +8,13 @@ class CityResponse(BaseModel):
     id: int
     name: str
     normalized_name: str
+
     subject_id: int
     subject_name: str | None = None
-    federal_district_name: str | None = None
+
     tariff_zone_id: int | None = None
     tariff_zone_name: str | None = None
+
     latitude: float | None = None
     longitude: float | None = None
     has_coordinates: bool
@@ -28,6 +30,14 @@ class CalculateRequest(BaseModel):
     cargo_width_mm: int = Field(..., gt=0, examples=[3490])
     cargo_height_mm: int = Field(..., gt=0, examples=[3500])
     cargo_weight_tons: Decimal = Field(..., gt=0, examples=[25])
+
+    escort_vehicle_count: int = Field(
+        default=0,
+        ge=0,
+        le=10,
+        examples=[1],
+        description="Количество автомобилей прикрытия. 0 — не требуется.",
+    )
 
 
 class CalculateResponse(BaseModel):
@@ -49,17 +59,26 @@ class CalculateResponse(BaseModel):
     direction_name: str
 
     tariff_id: int
-    cargo_type: str
+
+    cargo_size_category_id: int
+    cargo_size_category_name: str
 
     distance_cache_id: int
     distance_km: Decimal
 
-    rate_per_km: Decimal
-    base_price: Decimal
-    border_crossing_price: Decimal
-    final_price: Decimal
-    currency: str
+    base_rate_per_km: Decimal
+    cargo_size_surcharge_per_km: Decimal
+    escort_vehicle_rate_per_km: Decimal
+    escort_vehicle_count: int
+    final_rate_per_km: Decimal
 
+    base_price: Decimal
+    cargo_size_surcharge_price: Decimal
+    additional_services_price: Decimal
+    special_tariffs_price: Decimal
+    final_price: Decimal
+
+    currency: str
     explanation: str
 
 
@@ -96,7 +115,9 @@ class CalculationHistoryItem(BaseModel):
     direction_name: str | None = None
 
     tariff_id: int | None = None
-    cargo_type: str | None = None
+
+    cargo_size_category_id: int | None = None
+    cargo_size_category_name: str | None = None
 
     cargo_length_mm: int
     cargo_width_mm: int
@@ -104,11 +125,19 @@ class CalculationHistoryItem(BaseModel):
     cargo_weight_tons: Decimal
 
     distance_km: Decimal | None = None
-    rate_per_km: Decimal | None = None
-    base_price: Decimal | None = None
-    border_crossing_price: Decimal | None = None
-    final_price: Decimal | None = None
-    currency: str | None = None
 
+    base_rate_per_km: Decimal | None = None
+    cargo_size_surcharge_per_km: Decimal | None = None
+    escort_vehicle_count: int | None = None
+    escort_vehicle_rate_per_km: Decimal | None = None
+    final_rate_per_km: Decimal | None = None
+
+    base_price: Decimal | None = None
+    cargo_size_surcharge_price: Decimal | None = None
+    additional_services_price: Decimal | None = None
+    special_tariffs_price: Decimal | None = None
+    final_price: Decimal | None = None
+
+    currency: str | None = None
     explanation: str | None = None
     created_at: datetime | None = None

@@ -1,12 +1,14 @@
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import HTTPException
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
+    AdditionalService,
     Calculation,
+    CargoSizeCategory,
     City,
     DistanceCache,
     FederalSubject,
@@ -19,12 +21,19 @@ from app.models import (
 from app.services.osrm import get_distance_from_osrm
 
 
+def money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def distance_value(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def get_city_or_404(db: Session, city_id: int) -> City:
     city = db.execute(
         select(City)
         .options(
             joinedload(City.subject).joinedload(FederalSubject.tariff_zone),
-            joinedload(City.subject).joinedload(FederalSubject.federal_district),
         )
         .where(City.id == city_id)
     ).scalar_one_or_none()
@@ -105,37 +114,7 @@ def get_location_for_city_or_400(db: Session, city_id: int) -> Location:
     return location
 
 
-def get_federal_district_zone_name(federal_district_name: str) -> str | None:
-    name = federal_district_name.lower()
-
-    if "централь" in name:
-        return "Центральный ФО"
-
-    if "северо-запад" in name or "северо запад" in name:
-        return "Северо-Западный ФО"
-
-    if "южн" in name and "северо" not in name:
-        return "Южный ФО"
-
-    if "северо-кавказ" in name or "северо кавказ" in name:
-        return "Северо-Кавказский ФО"
-
-    if "приволж" in name:
-        return "Приволжский ФО"
-
-    if "ураль" in name:
-        return "Уральский ФО"
-
-    if "сибир" in name:
-        return "Сибирский ФО"
-
-    if "дальневост" in name:
-        return "Дальний Восток"
-
-    return None
-
-
-def unique_tariff_zones(zones: list[TariffZone]) -> list[TariffZone]:
+def unique_tariff_zones(zones: list[TariffZone | None]) -> list[TariffZone]:
     result = []
     seen_ids = set()
 
@@ -163,24 +142,6 @@ def get_subject_group_zones(db: Session, city: City) -> list[TariffZone]:
     return list(zones)
 
 
-def get_district_tariff_zone(db: Session, city: City) -> TariffZone | None:
-    if city.subject is None or city.subject.federal_district is None:
-        return None
-
-    zone_name = get_federal_district_zone_name(city.subject.federal_district.name)
-
-    if zone_name is None:
-        return None
-
-    zone = db.execute(
-        select(TariffZone)
-        .where(TariffZone.name == zone_name)
-        .limit(1)
-    ).scalar_one_or_none()
-
-    return zone
-
-
 def get_tariff_zone_candidates(
     db: Session,
     city: City,
@@ -193,21 +154,16 @@ def get_tariff_zone_candidates(
         )
 
     subject_group_zones = get_subject_group_zones(db, city)
-
     direct_zone = city.subject.tariff_zone
-
-    district_zone = get_district_tariff_zone(db, city)
 
     if role == "destination":
         zones = [
             *subject_group_zones,
             direct_zone,
-            district_zone,
         ]
     else:
         zones = [
             direct_zone,
-            district_zone,
             *subject_group_zones,
         ]
 
@@ -320,59 +276,11 @@ def find_direction_or_400(
     )
 
 
-def find_tariff_or_400(
-    db: Session,
-    direction_id: int,
-    cargo_length_mm: int,
-    cargo_width_mm: int,
-    cargo_height_mm: int,
-    cargo_weight_tons: Decimal,
-) -> Tariff:
-    tariff = db.execute(
-        select(Tariff)
-        .where(
-            Tariff.direction_id == direction_id,
-            Tariff.max_length_mm >= cargo_length_mm,
-            Tariff.max_width_mm >= cargo_width_mm,
-            Tariff.max_height_mm >= cargo_height_mm,
-            Tariff.max_weight_tons >= cargo_weight_tons,
-        )
-        .order_by(
-            Tariff.max_length_mm,
-            Tariff.max_width_mm,
-            Tariff.max_height_mm,
-            Tariff.max_weight_tons,
-            Tariff.rate_per_km,
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if tariff is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Не найден подходящий тариф для груза: "
-                f"{cargo_length_mm}×{cargo_width_mm}×{cargo_height_mm} мм, "
-                f"{cargo_weight_tons} т"
-            ),
-        )
-
-    if tariff.rate_per_km is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"У тарифа id={tariff.id} не заполнена ставка rate_per_km",
-        )
-
-    return tariff
-
-
 def get_or_create_distance_cache(
     db: Session,
     from_location: Location,
     to_location: Location,
 ) -> DistanceCache:
-    # 1. Сначала ищем уже готовое расстояние в кэше.
-    # Не фильтруем по provider, потому что старые записи могли быть manual/test/imported.
     distance_cache = db.execute(
         select(DistanceCache)
         .where(
@@ -387,8 +295,6 @@ def get_or_create_distance_cache(
     if distance_cache is not None:
         return distance_cache
 
-    # 2. Если прямого маршрута нет, пробуем найти обратный.
-    # Для расстояния обычно это допустимо: A → B примерно равно B → A.
     reverse_distance_cache = db.execute(
         select(DistanceCache)
         .where(
@@ -403,7 +309,6 @@ def get_or_create_distance_cache(
     if reverse_distance_cache is not None:
         return reverse_distance_cache
 
-    # 3. Если в кэше ничего нет — обращаемся к OSRM.
     distance_km, duration_minutes = get_distance_from_osrm(
         from_latitude=from_location.latitude,
         from_longitude=from_location.longitude,
@@ -411,7 +316,6 @@ def get_or_create_distance_cache(
         to_longitude=to_location.longitude,
     )
 
-    # 4. Сохраняем новое расстояние в кэш.
     distance_cache = DistanceCache(
         from_location_id=from_location.id,
         to_location_id=to_location.id,
@@ -429,6 +333,123 @@ def get_or_create_distance_cache(
     return distance_cache
 
 
+def find_cargo_size_category_or_400(
+    db: Session,
+    cargo_length_mm: int,
+    cargo_width_mm: int,
+    cargo_height_mm: int,
+) -> CargoSizeCategory:
+    category = db.execute(
+        select(CargoSizeCategory)
+        .where(
+            CargoSizeCategory.max_length_mm >= cargo_length_mm,
+            CargoSizeCategory.max_width_mm >= cargo_width_mm,
+            CargoSizeCategory.max_height_mm >= cargo_height_mm,
+        )
+        .order_by(CargoSizeCategory.priority)
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if category is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Груз превышает максимальные допустимые габариты: "
+                f"{cargo_length_mm}×{cargo_width_mm}×{cargo_height_mm} мм. "
+                "Максимум по текущей таблице: 40000×5000×5000 мм."
+            ),
+        )
+
+    return category
+
+
+def get_base_tariff_category_ids(
+    cargo_size_category: CargoSizeCategory,
+    cargo_weight_tons: Decimal,
+) -> list[int]:
+    """
+    В таблице tariffs обычно:
+    1 = Габарит 20 т
+    2 = Негабаритные/тяжёлые строки
+    3 = Негабарит 2 степени, но это категория надбавки +80 руб/км.
+
+    Поэтому:
+    - для габарита до 20 т сначала ищем категорию 1, потом fallback на 2;
+    - для габарита тяжелее 20 т ищем категорию 2;
+    - для негабарита 1 ищем категорию 2;
+    - для негабарита 2 ищем категорию 2, а +80 берём из категории 3.
+    """
+    if cargo_size_category.code == "standard" and cargo_weight_tons <= Decimal("20"):
+        return [1, 2]
+
+    return [2]
+
+
+def find_tariff_or_400(
+    db: Session,
+    direction_id: int,
+    cargo_size_category: CargoSizeCategory,
+    cargo_weight_tons: Decimal,
+    distance_km: Decimal,
+) -> Tariff:
+    base_category_ids = get_base_tariff_category_ids(
+        cargo_size_category=cargo_size_category,
+        cargo_weight_tons=cargo_weight_tons,
+    )
+
+    for base_category_id in base_category_ids:
+        tariff = db.execute(
+            select(Tariff)
+            .where(
+                Tariff.direction_id == direction_id,
+                Tariff.cargo_size_category_id == base_category_id,
+                cargo_weight_tons > Tariff.min_weight_tons,
+                cargo_weight_tons <= Tariff.max_weight_tons,
+                distance_km > Tariff.min_distance_km,
+                (
+                    Tariff.max_distance_km.is_(None)
+                    | (distance_km <= Tariff.max_distance_km)
+                ),
+            )
+            .order_by(
+                Tariff.max_weight_tons,
+                Tariff.min_distance_km,
+                Tariff.rate_per_km,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if tariff is not None:
+            return tariff
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "Не найден подходящий тариф. "
+            f"direction_id={direction_id}, "
+            f"габаритная категория={cargo_size_category.name}, "
+            f"вес={cargo_weight_tons} т, "
+            f"расстояние={distance_km} км."
+        ),
+    )
+
+
+def get_escort_vehicle_rate_per_km(db: Session) -> Decimal:
+    service = db.execute(
+        select(AdditionalService)
+        .where(
+            AdditionalService.code == "escort_vehicle",
+            AdditionalService.is_active.is_(True),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+
+    if service is None:
+        return Decimal("0.00")
+
+    return Decimal(service.price or 0)
+
+
 def calculate_transport_price(
     db: Session,
     from_city_id: int,
@@ -437,7 +458,14 @@ def calculate_transport_price(
     cargo_width_mm: int,
     cargo_height_mm: int,
     cargo_weight_tons: Decimal,
+    escort_vehicle_count: int = 0,
 ):
+    if escort_vehicle_count < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Количество автомобилей прикрытия не может быть меньше 0",
+        )
+
     from_city = get_city_or_404(db, from_city_id)
     to_city = get_city_or_404(db, to_city_id)
 
@@ -450,60 +478,108 @@ def calculate_transport_price(
         to_city=to_city,
     )
 
-    tariff = find_tariff_or_400(
-        db=db,
-        direction_id=direction.id,
-        cargo_length_mm=cargo_length_mm,
-        cargo_width_mm=cargo_width_mm,
-        cargo_height_mm=cargo_height_mm,
-        cargo_weight_tons=cargo_weight_tons,
-    )
-
     distance_cache = get_or_create_distance_cache(
         db=db,
         from_location=from_location,
         to_location=to_location,
     )
 
-    distance_km = Decimal(distance_cache.distance_km)
-    rate_per_km = Decimal(tariff.rate_per_km)
-    border_crossing_price = Decimal(tariff.border_crossing_price or 0)
+    distance_km = distance_value(Decimal(distance_cache.distance_km))
 
-    base_price = distance_km * rate_per_km
-    final_price = base_price + border_crossing_price
+    cargo_size_category = find_cargo_size_category_or_400(
+        db=db,
+        cargo_length_mm=cargo_length_mm,
+        cargo_width_mm=cargo_width_mm,
+        cargo_height_mm=cargo_height_mm,
+    )
+
+    tariff = find_tariff_or_400(
+        db=db,
+        direction_id=direction.id,
+        cargo_size_category=cargo_size_category,
+        cargo_weight_tons=Decimal(cargo_weight_tons),
+        distance_km=distance_km,
+    )
+
+    base_rate_per_km = Decimal(tariff.rate_per_km)
+    cargo_size_surcharge_per_km = Decimal(cargo_size_category.rate_per_km_surcharge)
+
+    escort_vehicle_rate_per_km = get_escort_vehicle_rate_per_km(db)
+
+    final_rate_per_km = money(base_rate_per_km + cargo_size_surcharge_per_km)
+
+    base_price = money(distance_km * base_rate_per_km)
+    cargo_size_surcharge_price = money(distance_km * cargo_size_surcharge_per_km)
+
+    additional_services_price = money(
+        distance_km
+        * escort_vehicle_rate_per_km
+        * Decimal(escort_vehicle_count)
+    )
+
+    special_tariffs_price = Decimal("0.00")
+
+    final_price = money(
+        base_price
+        + cargo_size_surcharge_price
+        + additional_services_price
+        + special_tariffs_price
+    )
 
     currency = tariff.currency or "RUB"
 
     explanation = (
         f"Маршрут: {from_city.name} → {to_city.name}. "
         f"Тарифное направление: {direction.name}. "
-        f"Тариф: {tariff.cargo_type}, "
-        f"до {tariff.max_length_mm}×{tariff.max_width_mm}×{tariff.max_height_mm} мм, "
-        f"до {tariff.max_weight_tons} т. "
+        f"Габаритная категория: {cargo_size_category.name}. "
+        f"Груз: {cargo_length_mm}×{cargo_width_mm}×{cargo_height_mm} мм, "
+        f"{cargo_weight_tons} т. "
         f"Расстояние: {distance_km} км. "
-        f"Расчёт: {distance_km} × {rate_per_km} + {border_crossing_price} = {final_price} {currency}."
+        f"Базовая ставка: {base_rate_per_km} {currency}/км. "
+        f"Надбавка за габарит: {cargo_size_surcharge_per_km} {currency}/км. "
+        f"Итоговая ставка без прикрытия: {final_rate_per_km} {currency}/км. "
+        f"Автомобили прикрытия: {escort_vehicle_count} × "
+        f"{escort_vehicle_rate_per_km} {currency}/км. "
+        f"Расчёт: {base_price} + {cargo_size_surcharge_price} "
+        f"+ {additional_services_price} = {final_price} {currency}."
     )
 
     calculation = Calculation(
         from_location_id=from_location.id,
         to_location_id=to_location.id,
+
         from_city_id=from_city.id,
         to_city_id=to_city.id,
+
         from_tariff_zone_id=from_tariff_zone.id if from_tariff_zone else None,
         to_tariff_zone_id=to_tariff_zone.id,
+
         direction_id=direction.id,
         tariff_id=tariff.id,
+        cargo_size_category_id=cargo_size_category.id,
         distance_cache_id=distance_cache.id,
+
         cargo_length_mm=cargo_length_mm,
         cargo_width_mm=cargo_width_mm,
         cargo_height_mm=cargo_height_mm,
         cargo_weight_tons=cargo_weight_tons,
-        cargo_type=tariff.cargo_type,
+
         distance_km=distance_km,
-        rate_per_km=rate_per_km,
+
+        base_rate_per_km=base_rate_per_km,
+        cargo_size_surcharge_per_km=cargo_size_surcharge_per_km,
+
+        escort_vehicle_count=escort_vehicle_count,
+        escort_vehicle_rate_per_km=escort_vehicle_rate_per_km,
+
+        final_rate_per_km=final_rate_per_km,
+
         base_price=base_price,
-        border_crossing_price=border_crossing_price,
+        cargo_size_surcharge_price=cargo_size_surcharge_price,
+        additional_services_price=additional_services_price,
+        special_tariffs_price=special_tariffs_price,
         final_price=final_price,
+
         currency=currency,
         explanation=explanation,
     )
@@ -514,24 +590,42 @@ def calculate_transport_price(
 
     return {
         "calculation_id": calculation.id,
+
         "from_city": from_city.name,
         "to_city": to_city.name,
+
         "from_location_id": from_location.id,
         "to_location_id": to_location.id,
+
         "from_tariff_zone_id": from_tariff_zone.id if from_tariff_zone else None,
         "from_tariff_zone_name": from_tariff_zone.name if from_tariff_zone else None,
+
         "to_tariff_zone_id": to_tariff_zone.id,
         "to_tariff_zone_name": to_tariff_zone.name,
+
         "direction_id": direction.id,
         "direction_name": direction.name,
+
         "tariff_id": tariff.id,
-        "cargo_type": tariff.cargo_type,
+
+        "cargo_size_category_id": cargo_size_category.id,
+        "cargo_size_category_name": cargo_size_category.name,
+
         "distance_cache_id": distance_cache.id,
         "distance_km": distance_km,
-        "rate_per_km": rate_per_km,
+
+        "base_rate_per_km": base_rate_per_km,
+        "cargo_size_surcharge_per_km": cargo_size_surcharge_per_km,
+        "escort_vehicle_rate_per_km": escort_vehicle_rate_per_km,
+        "escort_vehicle_count": escort_vehicle_count,
+        "final_rate_per_km": final_rate_per_km,
+
         "base_price": base_price,
-        "border_crossing_price": border_crossing_price,
+        "cargo_size_surcharge_price": cargo_size_surcharge_price,
+        "additional_services_price": additional_services_price,
+        "special_tariffs_price": special_tariffs_price,
         "final_price": final_price,
+
         "currency": currency,
         "explanation": explanation,
     }

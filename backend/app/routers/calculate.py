@@ -25,4 +25,5 @@ def calculate_price(
         cargo_width_mm=request.cargo_width_mm,
         cargo_height_mm=request.cargo_height_mm,
         cargo_weight_tons=request.cargo_weight_tons,
+        escort_vehicle_count=request.escort_vehicle_count,
     )
