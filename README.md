@@ -1,154 +1,128 @@
-# Transport Calculator
+# Краткая инструкция по запуску калькулятора перевозки
 
-Прототип калькулятора стоимости перевозки.
+## Что нужно установить
 
-Проект рассчитывает стоимость маршрута на основе:
-
-- города отправления
-- города назначения
-- габаритов груза
-- веса груза
-- тарифных зон
-- тарифных направлений
-- дорожного расстояния, рассчитанного через OSRM
-
----
-
-## Что входит в проект
+На сервере или компьютере должны быть установлены:
 
 ```text
-transport-calc/
-  backend/       FastAPI backend
-  frontend/      React frontend
-  osrm-data/     локальные данные OSRM, не загружаются в GitHub
-```
-
-Проект состоит из четырех основных частей:
-
-```text
-1. PostgreSQL — база данных с городами, тарифами, зонами и расчётами.
-2. Backend — FastAPI-приложение, которое выполняет расчёт.
-3. Frontend — React-интерфейс для пользователя.
-4. OSRM — локальный сервис маршрутизации по данным OpenStreetMap.
+Python 3.12+
+Node.js 20+
+PostgreSQL
+Docker
 ```
 
 ---
 
-## Технологии
+## База данных
 
-### Backend
+Создать базу PostgreSQL и восстановить переданный SQL-дамп.
 
-- Python
-- FastAPI
-- SQLAlchemy
-- PostgreSQL
-- Pydantic
-- httpx
-- Uvicorn
+После восстановления выполнить:
 
-### Frontend
-
-- React
-- Vite
-- Axios
-- CSS
-
-### Routing
-
-- OSRM, Open Source Routing Machine
-- OpenStreetMap data
-
-### Infrastructure
-
-- Docker Desktop
-- PostgreSQL локально
-- OSRM локально
-- PowerShell-скрипты для запуска
-
----
-
-## Структура проекта
-
-```text
-transport-calc/
-  backend/
-    app/
-      main.py
-      config.py
-      database.py
-      models.py
-      schemas.py
-
-      routers/
-        cities.py
-        calculate.py
-        calculations.py
-        locations.py
-        osrm.py
-
-      services/
-        calculator.py
-        osrm.py
-
-    .env
-    .env.example
-    requirements.txt
-
-  frontend/
-    src/
-      App.jsx
-      App.css
-      main.jsx
-      index.css
-
-    .env
-    .env.example
-    package.json
-
-  osrm-data/
-    russia-latest.osm.pbf
-    russia-latest.osrm
-    ...
-
-  start_backend.ps1
-  start_frontend.ps1
-  README.md
-  .gitignore
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ```
 
 ---
 
-## Как работает расчёт
+## Backend
 
-Алгоритм расчёта:
+Перейти в папку backend:
 
-```text
-1. Пользователь выбирает город отправления и город назначения.
-2. Frontend отправляет from_city_id, to_city_id и параметры груза.
-3. Backend находит города в таблице cities.
-4. Backend определяет тарифные зоны городов.
-5. Backend ищет тарифное направление:
-   - сначала city_to_zone;
-   - если не найдено, zone_to_zone.
-6. Backend ищет подходящий тариф:
-   - по направлению;
-   - по максимальной длине;
-   - по максимальной ширине;
-   - по максимальной высоте;
-   - по максимальному весу.
-7. Backend ищет расстояние в distance_cache.
-8. Если расстояние найдено, backend использует его.
-9. Если расстояния нет, backend обращается к OSRM.
-10. OSRM возвращает дорожное расстояние.
-11. Backend сохраняет расстояние в distance_cache.
-12. Backend считает стоимость.
-13. Backend сохраняет расчёт в calculations.
-14. Frontend показывает результат пользователю.
+```bash
+cd backend
 ```
 
-Формула расчёта:
+Создать виртуальное окружение:
+
+```bash
+python -m venv .venv
+```
+
+Активировать его:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Установить зависимости:
+
+```bash
+pip install -r requirements.txt
+```
+
+Создать файл `.env` в папке `backend`:
+
+```env
+DATABASE_URL=postgresql+psycopg2://postgres:password@localhost:5432/transport_calc
+OSRM_BASE_URL=http://127.0.0.1:5000
+```
+
+Заменить `postgres`, `password` и `transport_calc` на свои данные.
+
+---
+
+## OSRM
+
+OSRM уже подготовлен и находится в папке:
 
 ```text
-base_price = distance_km × rate_per_km
-final_price = base_price + border_crossing_price
+osrm-data/
+```
+
+Запустить OSRM из корня проекта:
+
+```powershell
+docker run -t -i -p 5000:5000 -v "${PWD}\osrm-data:/data" osrm/osrm-backend osrm-routed --algorithm mld /data/russia-latest.osrm
+```
+
+OSRM должен быть доступен по адресу:
+
+```text
+http://127.0.0.1:5000
+```
+
+---
+
+## Запуск backend
+
+В отдельном терминале:
+
+```bash
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Проверка:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+---
+
+## Frontend
+
+Перейти в папку frontend:
+
+```bash
+cd frontend
+```
+
+Установить зависимости:
+
+```bash
+npm install
+```
+
+Запустить frontend:
+
+```bash
+npm run dev
+```
+
+Открыть:
+
+```text
+http://localhost:5173
 ```
