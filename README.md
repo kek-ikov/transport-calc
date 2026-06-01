@@ -15,13 +15,32 @@ Docker
 
 ## База данных
 
-Создать базу PostgreSQL и восстановить переданный SQL-дамп.
+Создать базу PostgreSQL:
+
+```text
+CREATE DATABASE transport_calc
+```
+
+Восстановить переданный SQL-дамп.
 
 После восстановления выполнить:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 ```
+
+Если индексы для поиска городов не были добавлены вместе с дампом, выполните:
+
+```text
+CREATE INDEX IF NOT EXISTS idx_cities_name_trgm 
+ON cities 
+USING gin (name gin_trgm_ops); 
+
+CREATE INDEX IF NOT EXISTS idx_cities_normalized_name_trgm 
+ON cities 
+USING gin (normalized_name gin_trgm_ops);
+```
+
 
 ---
 
