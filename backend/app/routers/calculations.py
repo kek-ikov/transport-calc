@@ -25,6 +25,7 @@ def get_recent_calculations(
             joinedload(Calculation.to_city),
             joinedload(Calculation.direction),
             joinedload(Calculation.tariff),
+            joinedload(Calculation.fixed_tariff),
             joinedload(Calculation.cargo_size_category),
         )
         .order_by(desc(Calculation.created_at), desc(Calculation.id))
@@ -48,6 +49,9 @@ def get_recent_calculations(
                 direction_name=calculation.direction.name if calculation.direction else None,
 
                 tariff_id=calculation.tariff_id,
+                fixed_tariff_id=calculation.fixed_tariff_id,
+
+                calculation_type=calculation.calculation_type,
 
                 cargo_size_category_id=calculation.cargo_size_category_id,
                 cargo_size_category_name=(
@@ -65,14 +69,11 @@ def get_recent_calculations(
 
                 base_rate_per_km=calculation.base_rate_per_km,
                 cargo_size_surcharge_per_km=calculation.cargo_size_surcharge_per_km,
-                escort_vehicle_count=calculation.escort_vehicle_count,
-                escort_vehicle_rate_per_km=calculation.escort_vehicle_rate_per_km,
                 final_rate_per_km=calculation.final_rate_per_km,
 
                 base_price=calculation.base_price,
                 cargo_size_surcharge_price=calculation.cargo_size_surcharge_price,
-                additional_services_price=calculation.additional_services_price,
-                special_tariffs_price=calculation.special_tariffs_price,
+                fixed_price=calculation.fixed_price,
                 final_price=calculation.final_price,
 
                 currency=calculation.currency,

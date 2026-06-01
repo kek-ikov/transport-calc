@@ -19,13 +19,14 @@ function App() {
   const [cargoHeight, setCargoHeight] = useState(3500);
   const [cargoWeight, setCargoWeight] = useState(25);
 
-  const [escortVehicleCount, setEscortVehicleCount] = useState(0);
-
   const [result, setResult] = useState(null);
-  const [recentCalculations, setRecentCalculations] = useState([]);
 
   const [isCalculating, setIsCalculating] = useState(false);
   const [error, setError] = useState("");
+
+  const [fromCityError, setFromCityError] = useState("");
+  const [toCityError, setToCityError] = useState("");
+  const [calculationError, setCalculationError] = useState("");
 
   async function searchCities(query, setter) {
     if (!query.trim()) {
@@ -48,19 +49,6 @@ function App() {
     }
   }
 
-  async function loadRecentCalculations() {
-    try {
-      const response = await axios.get(`${API_URL}/calculations/recent`, {
-        params: {
-          limit: 10,
-        },
-      });
-
-      setRecentCalculations(response.data);
-    } catch (error) {
-      console.error(error);
-    }
-  }
 
   useEffect(() => {
     if (fromCity && fromQuery === fromCity.name) {
@@ -76,6 +64,25 @@ function App() {
   }, [fromQuery, fromCity]);
 
   useEffect(() => {
+      function handleDocumentClick(event) {
+        const target = event.target;
+
+        if (!(target instanceof Element)) return;
+
+        if (target.closest(".field")) return;
+
+        setFromCities([]);
+        setToCities([]);
+      }
+
+      document.addEventListener("mousedown", handleDocumentClick);
+
+      return () => {
+        document.removeEventListener("mousedown", handleDocumentClick);
+      };
+    }, []);
+
+  useEffect(() => {
     if (toCity && toQuery === toCity.name) {
       setToCities([]);
       return;
@@ -88,37 +95,91 @@ function App() {
     return () => clearTimeout(timer);
   }, [toQuery, toCity]);
 
-  useEffect(() => {
-    loadRecentCalculations();
-  }, []);
 
   function selectFromCity(city) {
-    if (!city.has_coordinates) {
-      setError(
-        `У города "${city.name}" пока нет координат. Для расчёта выбери город с координатами.`
-      );
-      return;
+      setError("");
+      setCalculationError("");
+      setFromCityError("");
+      setFromCity(city);
+      setFromQuery(city.name);
+      setFromCities([]);
     }
-
-    setError("");
-    setFromCity(city);
-    setFromQuery(city.name);
-    setFromCities([]);
-  }
 
   function selectToCity(city) {
-    if (!city.has_coordinates) {
-      setError(
-        `У города "${city.name}" пока нет координат. Для расчёта выбери город с координатами.`
-      );
-      return;
+      setError("");
+      setCalculationError("");
+      setToCityError("");
+      setToCity(city);
+      setToQuery(city.name);
+      setToCities([]);
+  }
+
+  function normalizeCityName(value) {
+      return value.trim().toLowerCase().replaceAll("ё", "е");
     }
 
-    setError("");
-    setToCity(city);
-    setToQuery(city.name);
-    setToCities([]);
+    function findExactCityMatch(query, cities) {
+      const normalizedQuery = normalizeCityName(query);
+
+      if (!normalizedQuery) return null;
+
+      return (
+        cities.find((city) => normalizeCityName(city.name) === normalizedQuery) ||
+        null
+      );
+    }
+
+async function resolveCityOnBlur({
+  query,
+  selectedCity,
+  cities,
+  setCity,
+  setCities,
+  setCityError,
+}) {
+  const trimmedQuery = query.trim();
+
+  if (!trimmedQuery) {
+    setCity(null);
+    setCityError("");
+    setCities([]);
+    return;
   }
+
+  if (selectedCity && normalizeCityName(selectedCity.name) === normalizeCityName(trimmedQuery)) {
+    setCityError("");
+    setCities([]);
+    return;
+  }
+
+  let exactMatch = findExactCityMatch(trimmedQuery, cities);
+
+  if (!exactMatch) {
+    try {
+      const response = await axios.get(`${API_URL}/cities`, {
+        params: {
+          query: trimmedQuery,
+          limit: 10,
+        },
+      });
+
+      exactMatch = findExactCityMatch(trimmedQuery, response.data);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  if (exactMatch) {
+    setCity(exactMatch);
+    setCityError("");
+    setCities([]);
+    return;
+  }
+
+  setCity(null);
+  setCityError("Город не найден");
+  setCities([]);
+}
 
   function swapCities() {
     const oldFromCity = fromCity;
@@ -144,11 +205,10 @@ function App() {
     setFromCity(null);
     setToCity(null);
 
-    setCargoLength(15000);
-    setCargoWidth(3490);
-    setCargoHeight(3500);
-    setCargoWeight(25);
-    setEscortVehicleCount(0);
+    setCargoLength("");
+    setCargoWidth("");
+    setCargoHeight("");
+    setCargoWeight("");
 
     setResult(null);
     setError("");
@@ -167,19 +227,10 @@ function App() {
       return "Город отправления и город назначения не должны совпадать";
     }
 
-    if (!fromCity.has_coordinates) {
-      return `У города отправления "${fromCity.name}" нет координат`;
-    }
-
-    if (!toCity.has_coordinates) {
-      return `У города назначения "${toCity.name}" нет координат`;
-    }
-
     const length = Number(cargoLength);
     const width = Number(cargoWidth);
     const height = Number(cargoHeight);
     const weight = Number(cargoWeight);
-    const escortCount = Number(escortVehicleCount);
 
     if (!Number.isFinite(length) || length <= 0) {
       return "Длина груза должна быть больше 0";
@@ -195,14 +246,6 @@ function App() {
 
     if (!Number.isFinite(weight) || weight <= 0) {
       return "Вес груза должен быть больше 0";
-    }
-
-    if (!Number.isInteger(escortCount) || escortCount < 0) {
-      return "Количество автомобилей прикрытия должно быть целым числом от 0";
-    }
-
-    if (escortCount > 10) {
-      return "Количество автомобилей прикрытия выглядит слишком большим";
     }
 
     if (length > 100000) {
@@ -227,6 +270,7 @@ function App() {
   async function handleCalculate(event) {
     event.preventDefault();
 
+    setCalculationError("");
     setError("");
     setResult(null);
 
@@ -241,26 +285,28 @@ function App() {
 
     try {
       const response = await axios.post(`${API_URL}/calculate`, {
-          from_city_id: fromCity.id,
-          to_city_id: toCity.id,
-          cargo_length_mm: Number(cargoLength),
-          cargo_width_mm: Number(cargoWidth),
-          cargo_height_mm: Number(cargoHeight),
-          cargo_weight_tons: Number(cargoWeight),
-          escort_vehicle_count: Number(escortVehicleCount),
-        });
+        from_city_id: fromCity.id,
+        to_city_id: toCity.id,
+        cargo_length_mm: Number(cargoLength),
+        cargo_width_mm: Number(cargoWidth),
+        cargo_height_mm: Number(cargoHeight),
+        cargo_weight_tons: Number(cargoWeight),
+      });
 
       setResult(response.data);
-      await loadRecentCalculations();
     } catch (error) {
       console.error(error);
 
       const detail = error.response?.data?.detail;
 
       if (typeof detail === "string") {
-        setError(detail);
+        setCalculationError(
+          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
+        );
       } else if (detail?.message) {
-        setError(detail.message);
+        setCalculationError(
+          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
+        );
       } else if (Array.isArray(detail)) {
         setError(
           detail
@@ -268,7 +314,9 @@ function App() {
             .join(". ")
         );
       } else {
-        setError("Не удалось выполнить расчёт. Проверь параметры груза и маршрут");
+        setCalculationError(
+          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
+        );
       }
     } finally {
       setIsCalculating(false);
@@ -300,41 +348,46 @@ function App() {
       .replace(",", ".");
   }
 
-  function CityMeta({ city }) {
-    if (!city) return null;
-
-    return (
-      <div className="selected-city">
-        <span>{city.subject_name || "Субъект не указан"}</span>
-        <span>{city.tariff_zone_name || "Тарифная зона не указана"}</span>
-        <span className={city.has_coordinates ? "ok" : "bad"}>
-          {city.has_coordinates ? "координаты есть" : "нет координат"}
-        </span>
-      </div>
-    );
-  }
-
   function CitySuggestions({ cities, onSelect }) {
-    if (cities.length === 0) return null;
+  if (cities.length === 0) return null;
+
+  return (
+    <div className="suggestions">
+      {cities.map((city) => (
+        <button
+          key={city.id}
+          type="button"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            onSelect(city);
+          }}
+          className="suggestion"
+        >
+          <span>{city.name}</span>
+
+          <small>
+            {city.subject_name || "Субъект не указан"}
+            {city.tariff_zone_name ? ` · ${city.tariff_zone_name}` : ""}
+          </small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+  function ResultChips({ result }) {
+    const chips =
+      result.calculation_type === "fixed"
+        ? [result.cargo_size_category_name]
+        : [result.direction_name, result.cargo_size_category_name];
 
     return (
-      <div className="suggestions">
-        {cities.map((city) => (
-          <button
-            key={city.id}
-            type="button"
-            onClick={() => onSelect(city)}
-            className={`suggestion ${!city.has_coordinates ? "disabled-suggestion" : ""}`}
-          >
-            <span>{city.name}</span>
-
-            <small>
-              {city.subject_name || "Субъект не указан"}
-              {city.tariff_zone_name ? ` · ${city.tariff_zone_name}` : ""}
-              {city.has_coordinates ? "" : " · нет координат"}
-            </small>
-          </button>
-        ))}
+      <div className="chips">
+        {chips
+          .filter((chip) => chip && chip !== "—")
+          .map((chip) => (
+            <span key={chip}>{chip}</span>
+          ))}
       </div>
     );
   }
@@ -342,20 +395,19 @@ function App() {
   return (
     <div className="page">
       <header className="header">
-        <div>
-          <p className="eyebrow">Калькулятор перевозки</p>
-          <h1>Расчёт стоимости маршрута</h1>
-          <p className="subtitle">
-            Выбери города, укажи параметры груза, а система подберёт тариф,
-            рассчитает дорожное расстояние через OSRM и сохранит результат.
-          </p>
-        </div>
-      </header>
+          <div>
+            <p className="eyebrow">ТК ТАЛИ · калькулятор</p>
+            <h1>Расчёт стоимости перевозки</h1>
+            <p className="subtitle">
+              Укажите маршрут и параметры груза — калькулятор подберёт тариф и рассчитает стоимость.
+            </p>
+          </div>
+        </header>
 
       <main className="layout">
         <section className="card">
           <div className="section-header">
-            <h2>Новый расчёт</h2>
+            <h2>Параметры перевозки</h2>
 
             <button type="button" onClick={clearForm} className="ghost-button">
               Очистить
@@ -370,16 +422,32 @@ function App() {
                   value={fromQuery}
                   onChange={(event) => {
                     setFromQuery(event.target.value);
+                    setFromCityError("");
 
                     if (fromCity && event.target.value !== fromCity.name) {
                       setFromCity(null);
                     }
                   }}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      resolveCityOnBlur({
+                        query: fromQuery,
+                        selectedCity: fromCity,
+                        cities: fromCities,
+                        setCity: setFromCity,
+                        setCities: setFromCities,
+                        setCityError: setFromCityError,
+                      });
+                    }, 150);
+                  }}
                   placeholder="Например, Москва"
                 />
 
+                <div className="field-error-wrapper">
+                  {fromCityError && <span className="field-error">Город не найден</span>}
+                </div>
+
                 <CitySuggestions cities={fromCities} onSelect={selectFromCity} />
-                <CityMeta city={fromCity} />
               </div>
 
               <button
@@ -398,16 +466,32 @@ function App() {
                   value={toQuery}
                   onChange={(event) => {
                     setToQuery(event.target.value);
+                    setToCityError("");
 
                     if (toCity && event.target.value !== toCity.name) {
                       setToCity(null);
                     }
                   }}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      resolveCityOnBlur({
+                        query: toQuery,
+                        selectedCity: toCity,
+                        cities: toCities,
+                        setCity: setToCity,
+                        setCities: setToCities,
+                        setCityError: setToCityError,
+                      });
+                    }, 150);
+                  }}
                   placeholder="Например, Иркутск"
                 />
 
+                <div className="field-error-wrapper">
+                  {toCityError && <span className="field-error">Город не найден</span>}
+                </div>
+
                 <CitySuggestions cities={toCities} onSelect={selectToCity} />
-                <CityMeta city={toCity} />
               </div>
             </div>
 
@@ -418,6 +502,7 @@ function App() {
                   type="number"
                   min="1"
                   value={cargoLength}
+                  placeholder="мм"
                   onChange={(event) => setCargoLength(event.target.value)}
                 />
               </div>
@@ -428,6 +513,7 @@ function App() {
                   type="number"
                   min="1"
                   value={cargoWidth}
+                  placeholder="мм"
                   onChange={(event) => setCargoWidth(event.target.value)}
                 />
               </div>
@@ -438,6 +524,7 @@ function App() {
                   type="number"
                   min="1"
                   value={cargoHeight}
+                  placeholder="мм"
                   onChange={(event) => setCargoHeight(event.target.value)}
                 />
               </div>
@@ -449,61 +536,47 @@ function App() {
                   min="0.01"
                   step="0.01"
                   value={cargoWeight}
+                  placeholder="т"
                   onChange={(event) => setCargoWeight(event.target.value)}
                 />
               </div>
-
-              <div className="field">
-                  <label>Автомобили прикрытия, шт.</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    step="1"
-                    value={escortVehicleCount}
-                    onChange={(event) => setEscortVehicleCount(event.target.value)}
-                  />
-                </div>
             </div>
-
-            <p className="form-hint">
-              Габариты указываются в миллиметрах, вес — в тоннах. Например:
-              15000×3490×3500 мм, 25 т.
-            </p>
 
             {error && <div className="error">{error}</div>}
 
             <button className="primary-button" type="submit" disabled={isCalculating}>
-              {isCalculating ? "Считаем..." : "Рассчитать"}
+              {isCalculating ? "Считаем..." : "Рассчитать стоимость"}
             </button>
           </form>
         </section>
 
         <section className="card">
-          <h2>Результат</h2>
+          <h2>Стоимость</h2>
 
-          {!result && (
-            <p className="muted">
-              Заполни маршрут и параметры груза, затем нажми “Рассчитать”.
-            </p>
-          )}
+          {!result && !calculationError && (
+              <p className="muted">
+                Заполните маршрут и параметры груза, затем нажмите “Рассчитать стоимость”
+              </p>
+            )}
 
-          {result && (
-              <div className="result">
-                <div className="route">
-                  <strong>{result.from_city}</strong>
-                  <span>→</span>
-                  <strong>{result.to_city}</strong>
-                </div>
+            {calculationError && (
+              <div className="calculation-error">
+                <strong>Требует уточнения</strong>
+                <p>{calculationError}</p>
+              </div>
+            )}
 
-                <div className="chips">
-                  <span>{result.direction_name}</span>
-                  <span>{result.cargo_size_category_name}</span>
-                  <span>
-                    {result.from_tariff_zone_name || "—"} → {result.to_tariff_zone_name}
-                  </span>
-                </div>
+          {result && !calculationError && (
+            <div className="result">
+              <div className="route">
+                <strong>{result.from_city}</strong>
+                <span>→</span>
+                <strong>{result.to_city}</strong>
+              </div>
 
+              <ResultChips result={result} />
+
+              {result.calculation_type === "fixed" ? (
                 <div className="result-grid">
                   <div>
                     <span>Расстояние</span>
@@ -511,51 +584,8 @@ function App() {
                   </div>
 
                   <div>
-                    <span>Базовая ставка</span>
-                    <strong>
-                      {formatMoney(result.base_rate_per_km, result.currency)} / км
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Надбавка за габарит</span>
-                    <strong>
-                      {formatMoney(result.cargo_size_surcharge_per_km, result.currency)} / км
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Итоговая ставка без прикрытия</span>
-                    <strong>
-                      {formatMoney(result.final_rate_per_km, result.currency)} / км
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Базовая цена</span>
-                    <strong>{formatMoney(result.base_price, result.currency)}</strong>
-                  </div>
-
-                  <div>
-                    <span>Надбавка за габарит</span>
-                    <strong>
-                      {formatMoney(result.cargo_size_surcharge_price, result.currency)}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Автомобили прикрытия</span>
-                    <strong>
-                      {result.escort_vehicle_count} ×{" "}
-                      {formatMoney(result.escort_vehicle_rate_per_km, result.currency)} / км
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Стоимость прикрытия</span>
-                    <strong>
-                      {formatMoney(result.additional_services_price, result.currency)}
-                    </strong>
+                    <span>Фиксированная цена</span>
+                    <strong>{formatMoney(result.fixed_price, result.currency)}</strong>
                   </div>
 
                   <div className="total">
@@ -563,67 +593,31 @@ function App() {
                     <strong>{formatMoney(result.final_price, result.currency)}</strong>
                   </div>
                 </div>
+                ) : (
+                  <div className="result-grid">
+                    <div>
+                      <span>Расстояние</span>
+                      <strong>{formatNumber(result.distance_km)} км</strong>
+                    </div>
 
-                <div className="explanation">{result.explanation}</div>
-              </div>
-            )}
+                    <div>
+                      <span>Ставка</span>
+                      <strong>
+                        {formatMoney(result.final_rate_per_km, result.currency)} / км
+                      </strong>
+                    </div>
+
+
+                    <div className="total">
+                      <span>Итого</span>
+                      <strong>{formatMoney(result.final_price, result.currency)}</strong>
+                    </div>
+                  </div>
+                )}
+            </div>
+          )}
         </section>
       </main>
-
-      <section className="card full-width">
-        <div className="section-header">
-          <h2>Последние расчёты</h2>
-          <button type="button" onClick={loadRecentCalculations} className="ghost-button">
-            Обновить
-          </button>
-        </div>
-
-        {recentCalculations.length === 0 && (
-          <p className="muted">Расчётов пока нет.</p>
-        )}
-
-        {recentCalculations.length > 0 && (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Маршрут</th>
-                  <th>Груз</th>
-                  <th>Расстояние</th>
-                  <th>Итого</th>
-                  <th>Дата</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentCalculations.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      {item.from_city_name || "—"} → {item.to_city_name || "—"}
-                    </td>
-                    <td>
-                      {item.cargo_length_mm}×{item.cargo_width_mm}×
-                      {item.cargo_height_mm} мм, {item.cargo_weight_tons} т
-                      {item.cargo_size_category_name
-                        ? ` · ${item.cargo_size_category_name}`
-                        : ""}
-                      {item.escort_vehicle_count
-                        ? ` · прикрытие: ${item.escort_vehicle_count} шт.`
-                        : ""}
-                    </td>
-                    <td>{formatNumber(item.distance_km)} км</td>
-                    <td>{formatMoney(item.final_price, item.currency || "RUB")}</td>
-                    <td>
-                      {item.created_at
-                        ? new Date(item.created_at).toLocaleString("ru-RU")
-                        : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
     </div>
   );
 }

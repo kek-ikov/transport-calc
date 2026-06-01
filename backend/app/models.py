@@ -16,6 +16,32 @@ class TariffZone(Base):
     description: Mapped[str | None] = mapped_column(Text)
 
 
+class TariffZoneParent(Base):
+    __tablename__ = "tariff_zone_parents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    child_zone_id: Mapped[int] = mapped_column(
+        ForeignKey("tariff_zones.id"),
+        nullable=False,
+    )
+
+    parent_zone_id: Mapped[int] = mapped_column(
+        ForeignKey("tariff_zones.id"),
+        nullable=False,
+    )
+
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    child_zone: Mapped[TariffZone] = relationship(
+        foreign_keys=[child_zone_id],
+    )
+
+    parent_zone: Mapped[TariffZone] = relationship(
+        foreign_keys=[parent_zone_id],
+    )
+
+
 class TariffZoneSubject(Base):
     __tablename__ = "tariff_zone_subjects"
 
@@ -175,6 +201,34 @@ class Tariff(Base):
     direction: Mapped[TariffDirection] = relationship()
     cargo_size_category: Mapped[CargoSizeCategory] = relationship()
 
+class FixedDistanceTariff(Base):
+    __tablename__ = "fixed_distance_tariffs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    tariff_zone_id: Mapped[int] = mapped_column(
+        ForeignKey("tariff_zones.id"),
+        nullable=False,
+    )
+
+    cargo_size_category_id: Mapped[int] = mapped_column(
+        ForeignKey("cargo_size_categories.id"),
+        nullable=False,
+    )
+
+    min_weight_tons: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    max_weight_tons: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+    min_distance_km: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    max_distance_km: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+    fixed_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+
+    currency: Mapped[str] = mapped_column(Text, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    tariff_zone: Mapped[TariffZone] = relationship()
+    cargo_size_category: Mapped[CargoSizeCategory] = relationship()
 
 class AdditionalService(Base):
     __tablename__ = "additional_services"
@@ -278,12 +332,22 @@ class Calculation(Base):
         ForeignKey("tariffs.id")
     )
 
+    fixed_tariff_id: Mapped[int | None] = mapped_column(
+        ForeignKey("fixed_distance_tariffs.id")
+    )
+
     cargo_size_category_id: Mapped[int | None] = mapped_column(
         ForeignKey("cargo_size_categories.id")
     )
 
     distance_cache_id: Mapped[int | None] = mapped_column(
         ForeignKey("distance_cache.id")
+    )
+
+    calculation_type: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="per_km",
     )
 
     cargo_length_mm: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -293,33 +357,42 @@ class Calculation(Base):
 
     distance_km: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
 
-    base_rate_per_km: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    base_rate_per_km: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
+
     cargo_size_surcharge_per_km: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,
+        default=Decimal("0.00"),
     )
 
-    escort_vehicle_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    escort_vehicle_rate_per_km: Mapped[Decimal] = mapped_column(
+    final_rate_per_km: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
         nullable=False,
+        default=Decimal("0.00"),
     )
 
-    final_rate_per_km: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    base_price: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+    )
 
-    base_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     cargo_size_surcharge_price: Mapped[Decimal] = mapped_column(
         Numeric(14, 2),
         nullable=False,
+        default=Decimal("0.00"),
     )
-    additional_services_price: Mapped[Decimal] = mapped_column(
+
+    fixed_price: Mapped[Decimal] = mapped_column(
         Numeric(14, 2),
         nullable=False,
+        default=Decimal("0.00"),
     )
-    special_tariffs_price: Mapped[Decimal] = mapped_column(
-        Numeric(14, 2),
-        nullable=False,
-    )
+
     final_price: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
 
     currency: Mapped[str] = mapped_column(Text, nullable=False)
@@ -341,5 +414,6 @@ class Calculation(Base):
 
     direction: Mapped[TariffDirection | None] = relationship()
     tariff: Mapped[Tariff | None] = relationship()
+    fixed_tariff: Mapped[FixedDistanceTariff | None] = relationship()
     cargo_size_category: Mapped[CargoSizeCategory | None] = relationship()
     distance_cache: Mapped[DistanceCache | None] = relationship()
