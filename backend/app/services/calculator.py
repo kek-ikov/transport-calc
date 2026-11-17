@@ -1,4 +1,7 @@
 from datetime import datetime
+import json
+from pathlib import Path
+from types import SimpleNamespace
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import HTTPException
@@ -491,7 +494,7 @@ def find_tariff_or_400(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Не найден подходящий тариф. "
+                "Стоимость по запросу: подходящий тариф не указан. "
                 f"direction_id={direction_id}, "
                 f"категория для поиска={lookup_category.name}, "
                 f"исходная категория={cargo_size_category.name}, "
@@ -613,31 +616,24 @@ def calculate_transport_price(
         to_zone_candidates=to_zone_candidates,
     )
 
-    if common_zones:
-        fixed_tariff_result = find_fixed_distance_tariff_for_common_zones(
-            db=db,
-            common_zones=common_zones,
-            cargo_size_category=cargo_size_category,
-            cargo_weight_tons=cargo_weight_tons,
-            distance_km=distance_km,
-        )
-
-        if fixed_tariff_result is None:
-            common_zone_names = ", ".join(zone.name for zone in common_zones)
-
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Маршрут находится внутри одной тарифной зоны, "
-                    "но фиксированный тариф для выбранных параметров не найден. "
-                    f"Общие тарифные зоны: {common_zone_names}. "
-                    f"Габаритная категория: {cargo_size_category.name}. "
-                    f"Вес: {cargo_weight_tons} т. "
-                    f"Расстояние: {distance_km} км."
-                ),
-            )
-
-        fixed_tariff, fixed_zone = fixed_tariff_result
+    # Short regional trips use the supplied common grid, with exact dimension limits.
+    same_region = from_city.subject_id == to_city.subject_id or (
+        from_city.subject.tariff_zone_id == to_city.subject.tariff_zone_id
+        and from_city.subject.tariff_zone_id in (5, 6)
+    )
+    if same_region and distance_km <= 600:
+        grid = json.loads(Path(__file__).with_name("regional_rates.json").read_text(encoding="utf8"))
+        candidates = [r for r in grid if r["min_km"] < distance_km <= r["max_km"]
+            and cargo_length_mm <= r["length"] and cargo_width_mm <= r["width"]
+            and cargo_height_mm <= r["height"] and cargo_weight_tons <= r["weight"]]
+        candidates.sort(key=lambda r: (r["length"] * r["width"] * r["height"], r["weight"]))
+        if not candidates or candidates[0]["price"] is None:
+            raise HTTPException(status_code=400, detail="Стоимость по запросу: в таблице нет цены для данного расстояния, веса или габаритов.")
+        row = candidates[0]
+        fixed_zone = from_city.subject.tariff_zone
+        fixed_tariff = SimpleNamespace(id=None, fixed_price=Decimal(str(row["price"])),
+            currency="RUB", min_distance_km=row["min_km"], max_distance_km=row["max_km"],
+            min_weight_tons=0, max_weight_tons=row["weight"])
 
         calculation_type = "fixed"
 

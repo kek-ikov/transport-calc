@@ -31,7 +31,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 Если индексы для поиска городов не были добавлены вместе с дампом, выполните:
 
-```text
+```sql
 CREATE INDEX IF NOT EXISTS idx_cities_name_trgm 
 ON cities 
 USING gin (name gin_trgm_ops); 
