@@ -23,9 +23,4 @@ class OptimizationTests(unittest.TestCase):
         self.assertIs(result[0], preferred)
         db.scalars.assert_called_once()
 
-    def test_grid_loaded_once(self):
-        c.load_regional_rates.cache_clear()
-        self.assertIs(c.load_regional_rates(), c.load_regional_rates())
-        self.assertEqual(len(c.load_regional_rates()), 144)
-
 if __name__ == "__main__": unittest.main()

@@ -1,12 +1,8 @@
-from functools import lru_cache
 from datetime import datetime
-import json
-from pathlib import Path
-from types import SimpleNamespace
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import HTTPException
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select, cast, Numeric
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
@@ -25,11 +21,6 @@ from app.models import (
 )
 
 from app.services.osrm import get_distance_from_osrm
-
-
-@lru_cache(maxsize=1)
-def load_regional_rates():
-    return json.loads(Path(__file__).with_name("regional_rates.json").read_text(encoding="utf8"))
 
 
 def money(value: Decimal) -> Decimal:
@@ -459,102 +450,21 @@ def find_tariff_or_400(
     cargo_weight_tons: Decimal,
     distance_km: Decimal,
 ) -> Tariff:
-    lookup_category = get_regular_tariff_lookup_category(
-        db=db,
-        cargo_size_category=cargo_size_category,
-    )
-
-    tariff = db.execute(
-        select(Tariff)
-        .where(
-            Tariff.direction_id == direction_id,
-            Tariff.cargo_size_category_id == lookup_category.id,
-            cargo_weight_tons > Tariff.min_weight_tons,
-            cargo_weight_tons <= Tariff.max_weight_tons,
-        )
-        .order_by(
-            Tariff.max_weight_tons.asc(),
-            Tariff.rate_per_km.asc(),
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if tariff is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Стоимость по запросу: подходящий тариф не указан. "
-                f"direction_id={direction_id}, "
-                f"категория для поиска={lookup_category.name}, "
-                f"исходная категория={cargo_size_category.name}, "
-                f"вес={cargo_weight_tons} т, "
-                f"расстояние={distance_km} км."
-            ),
-        )
-
-    return tariff
-
-def get_common_tariff_zones(
-    from_zone_candidates: list[TariffZone],
-    to_zone_candidates: list[TariffZone],
-) -> list[TariffZone]:
-    to_zone_ids = {zone.id for zone in to_zone_candidates}
-
-    common_zones = []
-
-    for from_zone in from_zone_candidates:
-        if from_zone.id in to_zone_ids:
-            common_zones.append(from_zone)
-
-    return common_zones
-
-
-def find_fixed_distance_tariff(
-    db: Session,
-    tariff_zone: TariffZone,
-    cargo_size_category: CargoSizeCategory,
-    cargo_weight_tons: Decimal,
-    distance_km: Decimal,
-) -> FixedDistanceTariff | None:
-    return db.execute(
-        select(FixedDistanceTariff)
-        .where(
-            FixedDistanceTariff.tariff_zone_id == tariff_zone.id,
-            FixedDistanceTariff.cargo_size_category_id == cargo_size_category.id,
-            cargo_weight_tons > FixedDistanceTariff.min_weight_tons,
-            cargo_weight_tons <= FixedDistanceTariff.max_weight_tons,
-            distance_km >= FixedDistanceTariff.min_distance_km,
-            distance_km <= FixedDistanceTariff.max_distance_km,
-        )
-        .order_by(
-            FixedDistanceTariff.max_weight_tons,
-            FixedDistanceTariff.min_distance_km,
-            FixedDistanceTariff.fixed_price,
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-
-
-def find_fixed_distance_tariff_for_common_zones(
-    db: Session,
-    common_zones: list[TariffZone],
-    cargo_size_category: CargoSizeCategory,
-    cargo_weight_tons: Decimal,
-    distance_km: Decimal,
-) -> tuple[FixedDistanceTariff, TariffZone] | None:
-    for zone in common_zones:
-        fixed_tariff = find_fixed_distance_tariff(
-            db=db,
-            tariff_zone=zone,
-            cargo_size_category=cargo_size_category,
-            cargo_weight_tons=cargo_weight_tons,
-            distance_km=distance_km,
-        )
-
-        if fixed_tariff is not None:
-            return fixed_tariff, zone
-
-    return None
+    category_id = cargo_size_category.id
+    if cargo_size_category.code != "standard" or cargo_weight_tons > 20:
+        category_id = db.scalar(select(CargoSizeCategory.id).where(CargoSizeCategory.code == "oversize_1"))
+    matches = db.scalars(select(Tariff).where(
+        Tariff.direction_id == direction_id,
+        Tariff.cargo_size_category_id == category_id,
+        cargo_weight_tons > Tariff.min_weight_tons,
+        cargo_weight_tons <= Tariff.max_weight_tons,
+        distance_km >= Tariff.min_distance_km,
+        or_(Tariff.max_distance_km.is_(None), Tariff.max_distance_km >= distance_km),
+    )).all()
+    if len(matches) != 1:
+        detail = "Стоимость по запросу: тариф не указан." if not matches else "Стоимость по запросу: тарифы пересекаются, требуется уточнение."
+        raise HTTPException(status_code=400, detail=detail)
+    return matches[0]
 
 
 def calculate_transport_price(
@@ -588,41 +498,27 @@ def calculate_transport_price(
         cargo_height_mm=cargo_height_mm,
     )
 
-    from_zone_candidates = get_tariff_zone_candidates(
-        db=db,
-        city=from_city,
-        role="origin",
-    )
-
-    to_zone_candidates = get_tariff_zone_candidates(
-        db=db,
-        city=to_city,
-        role="destination",
-    )
-
-    common_zones = get_common_tariff_zones(
-        from_zone_candidates=from_zone_candidates,
-        to_zone_candidates=to_zone_candidates,
-    )
-
     # Short regional trips use the supplied common grid, with exact dimension limits.
     same_region = from_city.subject_id == to_city.subject_id or (
         from_city.subject.tariff_zone_id == to_city.subject.tariff_zone_id
-        and from_city.subject.tariff_zone_id in (5, 6)
+        and ({from_city.subject.name, to_city.subject.name} <= {"Москва", "Московская область"}
+             or {from_city.subject.name, to_city.subject.name} <= {"Санкт-Петербург", "Ленинградская область"})
     )
-    if same_region and distance_km <= 600:
-        grid = load_regional_rates()
-        candidates = [r for r in grid if r["min_km"] < distance_km <= r["max_km"]
-            and cargo_length_mm <= r["length"] and cargo_width_mm <= r["width"]
-            and cargo_height_mm <= r["height"] and cargo_weight_tons <= r["weight"]]
-        candidates.sort(key=lambda r: (r["length"] * r["width"] * r["height"], r["weight"]))
-        if not candidates or candidates[0]["price"] is None:
+    if same_region and Decimal(distance_cache.distance_km) <= 600:
+        matches = db.scalars(select(FixedDistanceTariff).where(
+            FixedDistanceTariff.source_version == "regional-20261117",
+            FixedDistanceTariff.min_distance_km < Decimal(distance_cache.distance_km),
+            FixedDistanceTariff.max_distance_km >= Decimal(distance_cache.distance_km),
+            FixedDistanceTariff.max_length_mm >= cargo_length_mm,
+            FixedDistanceTariff.max_width_mm >= cargo_width_mm,
+            FixedDistanceTariff.max_height_mm >= cargo_height_mm,
+            FixedDistanceTariff.max_weight_tons >= cargo_weight_tons,
+        ).order_by(cast(FixedDistanceTariff.max_length_mm, Numeric) * FixedDistanceTariff.max_width_mm * FixedDistanceTariff.max_height_mm,
+                   FixedDistanceTariff.max_weight_tons)).all()
+        if not matches or matches[0].fixed_price is None:
             raise HTTPException(status_code=400, detail="Стоимость по запросу: в таблице нет цены для данного расстояния, веса или габаритов.")
-        row = candidates[0]
+        fixed_tariff = matches[0]
         fixed_zone = from_city.subject.tariff_zone
-        fixed_tariff = SimpleNamespace(id=None, fixed_price=Decimal(str(row["price"])),
-            currency="RUB", min_distance_km=row["min_km"], max_distance_km=row["max_km"],
-            min_weight_tons=0, max_weight_tons=row["weight"])
 
         calculation_type = "fixed"
 

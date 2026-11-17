@@ -208,7 +208,7 @@ class FixedDistanceTariff(Base):
 
     tariff_zone_id: Mapped[int] = mapped_column(
         ForeignKey("tariff_zones.id"),
-        nullable=False,
+        nullable=True,
     )
 
     cargo_size_category_id: Mapped[int] = mapped_column(
@@ -227,7 +227,11 @@ class FixedDistanceTariff(Base):
     currency: Mapped[str] = mapped_column(Text, nullable=False)
     comment: Mapped[str | None] = mapped_column(Text)
 
-    tariff_zone: Mapped[TariffZone] = relationship()
+    max_length_mm: Mapped[int | None] = mapped_column(Integer)
+    max_width_mm: Mapped[int | None] = mapped_column(Integer)
+    max_height_mm: Mapped[int | None] = mapped_column(Integer)
+    source_version: Mapped[str | None] = mapped_column(Text)
+    tariff_zone: Mapped[TariffZone | None] = relationship()
     cargo_size_category: Mapped[CargoSizeCategory] = relationship()
 
 class AdditionalService(Base):
