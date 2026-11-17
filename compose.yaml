@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: transport_calc
+    volumes:
+      - db-data:/var/lib/postgresql
+      - ./transport_calc.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d transport_calc"]
+      interval: 5s
+      retries: 30
+  osrm:
+    image: osrm/osrm-backend:latest
+    restart: unless-stopped
+    command: osrm-routed --mmap --algorithm mld /data/russia-latest.osrm
+    volumes:
+      - ./osrm-data:/data:ro
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "80:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD}@db:5432/transport_calc
+      OSRM_BASE_URL: http://osrm:5000
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  db-data:

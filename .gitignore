@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# FastAPI / local env
+backend/.env
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# OSRM data
+osrm-data/
+*.osm.pbf
+*.osrm*
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# System
+.DS_Store
+Thumbs.db
+.env
+backups/
+*.dump
+*.bundle
+
+
+/temp/
+/transport_calc.sql
+/osrm-data
+
+*.inspect.ndjson

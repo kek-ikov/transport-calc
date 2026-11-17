@@ -28,7 +28,7 @@ function App() {
   const [toCityError, setToCityError] = useState("");
   const [calculationError, setCalculationError] = useState("");
 
-  async function searchCities(query, setter) {
+  async function searchCities(query, setter, signal) {
     if (!query.trim()) {
       setter([]);
       return;
@@ -40,10 +40,12 @@ function App() {
           query,
           limit: 10,
         },
+        signal,
       });
 
-      setter(response.data);
+      if (!signal.aborted) setter(response.data);
     } catch (error) {
+      if (signal.aborted || axios.isCancel(error)) return;
       console.error(error);
       setError("Не удалось загрузить список городов");
     }
@@ -56,11 +58,12 @@ function App() {
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      searchCities(fromQuery, setFromCities);
+      searchCities(fromQuery, setFromCities, controller.signal);
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [fromQuery, fromCity]);
 
   useEffect(() => {
@@ -88,11 +91,12 @@ function App() {
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      searchCities(toQuery, setToCities);
+      searchCities(toQuery, setToCities, controller.signal);
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [toQuery, toCity]);
 
 
@@ -299,24 +303,16 @@ async function resolveCityOnBlur({
 
       const detail = error.response?.data?.detail;
 
-      if (typeof detail === "string") {
-        setCalculationError(
-          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
-        );
-      } else if (detail?.message) {
-        setCalculationError(
-          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
-        );
+      if (typeof detail === "string" && detail.trim()) {
+        setCalculationError(detail);
+      } else if (typeof detail?.message === "string") {
+        setCalculationError(detail.message);
       } else if (Array.isArray(detail)) {
-        setError(
-          detail
-            .map((item) => item.msg || "Ошибка валидации")
-            .join(". ")
-        );
+        setCalculationError(detail.map((item) => item.msg || "Некорректное значение параметра").join(". "));
+      } else if (!error.response) {
+        setCalculationError("Не удалось связаться с сервером расчёта. Проверьте подключение к интернету и повторите попытку.");
       } else {
-        setCalculationError(
-          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
-        );
+        setCalculationError(`Сервер не выполнил расчёт (код ${error.response.status}). Подробная причина не получена. Повторите попытку позже.`);
       }
     } finally {
       setIsCalculating(false);
@@ -561,7 +557,7 @@ async function resolveCityOnBlur({
 
             {calculationError && (
               <div className="calculation-error">
-                <strong>Требует уточнения</strong>
+                <strong>Расчёт не выполнен</strong>
                 <p>{calculationError}</p>
               </div>
             )}
