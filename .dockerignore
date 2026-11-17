@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/.venv
+**/__pycache__
+osrm-data
+backups
+.env
+*.dump
+frontend/frontend

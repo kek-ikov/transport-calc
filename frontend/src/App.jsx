@@ -28,7 +28,7 @@ function App() {
   const [toCityError, setToCityError] = useState("");
   const [calculationError, setCalculationError] = useState("");
 
-  async function searchCities(query, setter) {
+  async function searchCities(query, setter, signal) {
     if (!query.trim()) {
       setter([]);
       return;
@@ -40,10 +40,12 @@ function App() {
           query,
           limit: 10,
         },
+        signal,
       });
 
-      setter(response.data);
+      if (!signal.aborted) setter(response.data);
     } catch (error) {
+      if (signal.aborted || axios.isCancel(error)) return;
       console.error(error);
       setError("Не удалось загрузить список городов");
     }
@@ -56,11 +58,12 @@ function App() {
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      searchCities(fromQuery, setFromCities);
+      searchCities(fromQuery, setFromCities, controller.signal);
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [fromQuery, fromCity]);
 
   useEffect(() => {
@@ -88,11 +91,12 @@ function App() {
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      searchCities(toQuery, setToCities);
+      searchCities(toQuery, setToCities, controller.signal);
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [toQuery, toCity]);
 
 

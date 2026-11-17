@@ -1,3 +1,4 @@
+from functools import lru_cache
 from datetime import datetime
 import json
 from pathlib import Path
@@ -24,6 +25,11 @@ from app.models import (
 )
 
 from app.services.osrm import get_distance_from_osrm
+
+
+@lru_cache(maxsize=1)
+def load_regional_rates():
+    return json.loads(Path(__file__).with_name("regional_rates.json").read_text(encoding="utf8"))
 
 
 def money(value: Decimal) -> Decimal:
@@ -248,18 +254,15 @@ def find_zone_to_zone_direction(
     from_zone_candidates: list[TariffZone],
     to_zone_candidates: list[TariffZone],
 ) -> tuple[TariffDirection, TariffZone, TariffZone] | None:
+    directions = db.scalars(select(TariffDirection).where(
+        TariffDirection.from_tariff_zone_id.in_([z.id for z in from_zone_candidates]),
+        TariffDirection.to_tariff_zone_id.in_([z.id for z in to_zone_candidates]),
+        TariffDirection.direction_type == "zone_to_zone",
+    )).all()
+    by_pair = {(d.from_tariff_zone_id, d.to_tariff_zone_id): d for d in directions}
     for from_zone in from_zone_candidates:
         for to_zone in to_zone_candidates:
-            direction = db.execute(
-                select(TariffDirection)
-                .where(
-                    TariffDirection.from_tariff_zone_id == from_zone.id,
-                    TariffDirection.to_tariff_zone_id == to_zone.id,
-                    TariffDirection.direction_type == "zone_to_zone",
-                )
-                .limit(1)
-            ).scalar_one_or_none()
-
+            direction = by_pair.get((from_zone.id, to_zone.id))
             if direction is not None:
                 return direction, from_zone, to_zone
 
@@ -339,20 +342,6 @@ def get_or_create_distance_cache(
 
     if distance_cache is not None:
         return distance_cache
-
-    reverse_distance_cache = db.execute(
-        select(DistanceCache)
-        .where(
-            and_(
-                DistanceCache.from_location_id == to_location.id,
-                DistanceCache.to_location_id == from_location.id,
-            )
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if reverse_distance_cache is not None:
-        return reverse_distance_cache
 
     distance_km, duration_minutes = get_distance_from_osrm(
         from_latitude=from_location.latitude,
@@ -622,7 +611,7 @@ def calculate_transport_price(
         and from_city.subject.tariff_zone_id in (5, 6)
     )
     if same_region and distance_km <= 600:
-        grid = json.loads(Path(__file__).with_name("regional_rates.json").read_text(encoding="utf8"))
+        grid = load_regional_rates()
         candidates = [r for r in grid if r["min_km"] < distance_km <= r["max_km"]
             and cargo_length_mm <= r["length"] and cargo_width_mm <= r["width"]
             and cargo_height_mm <= r["height"] and cargo_weight_tons <= r["weight"]]
