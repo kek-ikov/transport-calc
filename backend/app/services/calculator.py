@@ -515,8 +515,23 @@ def calculate_transport_price(
             FixedDistanceTariff.max_weight_tons >= cargo_weight_tons,
         ).order_by(cast(FixedDistanceTariff.max_length_mm, Numeric) * FixedDistanceTariff.max_width_mm * FixedDistanceTariff.max_height_mm,
                    FixedDistanceTariff.max_weight_tons)).all()
-        if not matches or matches[0].fixed_price is None:
-            raise HTTPException(status_code=400, detail="Стоимость по запросу: в таблице нет цены для данного расстояния, веса или габаритов.")
+        if not matches:
+            raise HTTPException(status_code=400, detail=(
+                f"В региональной тарифной сетке нет подходящего варианта для груза "
+                f"{cargo_length_mm} × {cargo_width_mm} × {cargo_height_mm} мм, "
+                f"{cargo_weight_tons} т при расстоянии {distance_km} км. "
+                "Вес или габариты превышают доступные для этого расстояния ограничения."
+            ))
+        if matches[0].fixed_price is None:
+            row = matches[0]
+            reason = ("В исходной таблице указаны разные цены для одинаковых параметров груза."
+                      if row.comment and "Conflicting source rows" in row.comment
+                      else "Цена для выбранного диапазона в исходной таблице не заполнена.")
+            raise HTTPException(status_code=400, detail=(
+                f"{reason} Расстояние: {distance_km} км; "
+                f"интервал тарифа: свыше {row.min_distance_km} до {row.max_distance_km} км; "
+                f"груз: {cargo_length_mm} × {cargo_width_mm} × {cargo_height_mm} мм, {cargo_weight_tons} т."
+            ))
         fixed_tariff = matches[0]
         fixed_zone = from_city.subject.tariff_zone
 

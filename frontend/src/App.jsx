@@ -303,24 +303,16 @@ async function resolveCityOnBlur({
 
       const detail = error.response?.data?.detail;
 
-      if (typeof detail === "string") {
-        setCalculationError(
-          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
-        );
-      } else if (detail?.message) {
-        setCalculationError(
-          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
-        );
+      if (typeof detail === "string" && detail.trim()) {
+        setCalculationError(detail);
+      } else if (typeof detail?.message === "string") {
+        setCalculationError(detail.message);
       } else if (Array.isArray(detail)) {
-        setError(
-          detail
-            .map((item) => item.msg || "Ошибка валидации")
-            .join(". ")
-        );
+        setCalculationError(detail.map((item) => item.msg || "Некорректное значение параметра").join(". "));
+      } else if (!error.response) {
+        setCalculationError("Не удалось связаться с сервером расчёта. Проверьте подключение к интернету и повторите попытку.");
       } else {
-        setCalculationError(
-          "Предварительный расчёт по выбранному маршруту не выполнен. Оставьте заявку или обратитесь к менеджеру, чтобы мы рассчитали стоимость вручную."
-        );
+        setCalculationError(`Сервер не выполнил расчёт (код ${error.response.status}). Подробная причина не получена. Повторите попытку позже.`);
       }
     } finally {
       setIsCalculating(false);
@@ -565,7 +557,7 @@ async function resolveCityOnBlur({
 
             {calculationError && (
               <div className="calculation-error">
-                <strong>Требует уточнения</strong>
+                <strong>Расчёт не выполнен</strong>
                 <p>{calculationError}</p>
               </div>
             )}

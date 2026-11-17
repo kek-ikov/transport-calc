@@ -16,7 +16,7 @@ for d,price in [(50,40000),(50.001,55000),(100,55000),(100.001,60000),(500,10500
     assert calc("Москва","Подольск",d)["final_price"]==price
 for d in [500.001,600]:
     try: calc("Москва","Подольск",d); raise AssertionError("missing quote")
-    except HTTPException as e: assert "Стоимость по запросу" in e.detail
+    except HTTPException as e: assert "не заполнена" in e.detail
 assert calc("Хабаровск","Подольск",1000,25)["base_rate_per_km"]>0
 r=calc("Мурманск","Петрозаводск",400)
 assert r["calculation_type"]=="per_km"
