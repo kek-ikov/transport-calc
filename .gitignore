@@ -36,3 +36,7 @@ backups/
 *.dump
 *.bundle
 
+
+/temp/
+/transport_calc.sql
+/osrm-data
