@@ -145,3 +145,41 @@ npm run dev
 ```text
 http://localhost:5173
 ```
+
+## Сервер и Git
+
+Рабочая ветка: optimize-memory-and-routing.
+Каталог на сервере: /opt/transport-calc-git. Compose project: transport-calc.
+.env, карты, SQL-дампы и резервные копии не хранятся в Git.
+
+Обновление после локальных тестов и git push:
+
+```sh
+cd /opt/transport-calc-git
+git pull --ff-only origin optimize-memory-and-routing
+docker compose -p transport-calc up -d --build
+sh scripts/memory-check.sh
+```
+
+Точка отката: baseline-before-optimization-20261117.
+Перед откатом сохранить текущую БД. Затем git switch --detach baseline-before-optimization-20261117
+и docker compose -p transport-calc up -d --build. Добавленный индекс совместим со старым кодом;
+при необходимости его удаляет migrations/001_directional_cache_down.sql.
+Резервная копия до оптимизации: /opt/transport-calc/backups/pre-optimization.dump.
+Git не заменяет резервную копию БД. Не использовать docker compose down -v.
+
+Проверки: python -m unittest discover -s backend/tests (PYTHONPATH=backend и DATABASE_URL обязательны),
+npm --prefix frontend run build. memory-check.sh возвращает ошибку при доступной памяти ниже 15%.
+
+### Аудит БД 17.11.2026
+
+12 таблиц, около 2.6 МБ вместе с индексами. Удаление таблиц не решает потребление RAM.
+Добавлен составной индекс направленного кеша; исключено использование обратного расстояния.
+Сохранены справочники и связи зон: они определяют приоритет отдельных тарифов.
+Кандидат на отдельную миграцию: перенос regional_rates.json в единую таблицу коротких тарифов
+с габаритными ограничениями и допускаемой пустой ценой, замена fixed_distance_tariffs.
+До завершения такой миграции старую таблицу не удалять. История расчетов может быть очищена
+по согласованию, но экономия при 41 записи несущественна.
+
+Замер после mmap: OSRM около 711 МиБ после 20 запросов (4 параллельно), доступно 6.93 ГиБ.
+Первый маршрут 1.675 с, повторный 0.049 с. Это короткая проверка, не длительный нагрузочный тест.
