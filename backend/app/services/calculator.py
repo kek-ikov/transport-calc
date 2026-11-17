@@ -506,7 +506,7 @@ def calculate_transport_price(
     )
     if same_region and Decimal(distance_cache.distance_km) <= 600:
         matches = db.scalars(select(FixedDistanceTariff).where(
-            FixedDistanceTariff.source_version == "regional-20261117",
+            FixedDistanceTariff.source_version == "regional-20261117-corrected",
             FixedDistanceTariff.min_distance_km < Decimal(distance_cache.distance_km),
             FixedDistanceTariff.max_distance_km >= Decimal(distance_cache.distance_km),
             FixedDistanceTariff.max_length_mm >= cargo_length_mm,

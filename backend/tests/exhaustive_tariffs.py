@@ -25,7 +25,7 @@ for t in rates:
         got=c.find_tariff_or_400(db,t.direction_id,cats[1],t.max_weight_tons,D('1000'))
         assert got.id==t.id
         count+=1
-raw=json.loads(Path(os.environ.get('TARIFF_SOURCE', str(Path(__file__).resolve().parents[2] / 'migrations/sources/regional-20261117.json'))).read_text())
+raw=json.loads(Path(os.environ.get('TARIFF_SOURCE', str(Path(__file__).resolve().parents[2] / 'migrations/sources/regional-20261117-corrected.json'))).read_text())
 def expected(dist,dims,w):
     candidates=[r for r in raw if r['min_km']<dist<=r['max_km'] and all(a<=r[k] for a,k in zip(dims,['length','width','height'])) and w<=r['weight']]
     if not candidates:return None

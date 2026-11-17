@@ -226,3 +226,5 @@ psql -U postgres -d transport_calc -v ON_ERROR_STOP=1 -f transport_calc.sql
 Гарантии отсутствия ошибок для всех возможных входов эта проверка не дает.
 Скрипт backend/tests/exhaustive_tariffs.py запускать только на одноразовой копии БД:
 он создает тестовые записи. Нужны DATABASE_URL и PYTHONPATH=backend.
+
+Коррекция 60 т по подтверждению пользователя: первые строки каждого интервала имеют габариты 15000x3490x3500, вторые — 18000x4200x3800. Активная версия regional-20261117-corrected; миграция 003_correct_60t_dimensions.sql. Excel: outputs/tariff-correction/regional-tariffs-corrected.xlsx.

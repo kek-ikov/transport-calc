@@ -40,3 +40,5 @@ backups/
 /temp/
 /transport_calc.sql
 /osrm-data
+
+*.inspect.ndjson

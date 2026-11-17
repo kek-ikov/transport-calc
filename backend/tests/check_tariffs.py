@@ -20,7 +20,7 @@ for d in [500.001,600]:
 assert calc("Хабаровск","Подольск",1000,25)["base_rate_per_km"]>0
 r=calc("Мурманск","Петрозаводск",400)
 assert r["calculation_type"]=="per_km"
-assert db.scalar(select(FixedDistanceTariff.id).where(FixedDistanceTariff.source_version=="regional-20261117"))
+assert db.scalar(select(FixedDistanceTariff.id).where(FixedDistanceTariff.source_version=="regional-20261117-corrected"))
 # Detect overlapping weight/distance bands independently of the selector.
 q="""SELECT count(*) FROM tariffs a JOIN tariffs b ON a.id<b.id AND a.direction_id=b.direction_id AND a.cargo_size_category_id=b.cargo_size_category_id AND a.min_weight_tons<b.max_weight_tons AND b.min_weight_tons<a.max_weight_tons AND a.min_distance_km<=coalesce(b.max_distance_km,1e9) AND b.min_distance_km<=coalesce(a.max_distance_km,1e9)"""
 assert db.scalar(text(q))==0
